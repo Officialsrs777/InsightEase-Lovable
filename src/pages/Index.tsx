@@ -1,181 +1,133 @@
-import { useState, useEffect } from "react";
-import { CLITerminal } from "@/components/CLITerminal";
-import { WorkflowVisualization } from "@/components/WorkflowVisualization";
-import { APIKeyInput } from "@/components/APIKeyInput";
-import { GitHubActions } from "@/components/GitHubActions";
+import { useState } from "react";
+import { TranscriptUpload } from "@/components/TranscriptUpload";
+import { MeetingSummary } from "@/components/MeetingSummary";
+import { TaskExtraction } from "@/components/TaskExtraction";
+import { ProcessingStatus } from "@/components/ProcessingStatus";
 import { useToast } from "@/hooks/use-toast";
-import { Terminal, FileCode, Cloud, GitBranch } from "lucide-react";
+
+export interface Meeting {
+  id: string;
+  title: string;
+  transcript: string;
+  summary?: string;
+  tasks?: Task[];
+  timestamp: string;
+  status: 'processing' | 'completed' | 'error';
+}
+
+export interface Task {
+  id: string;
+  description: string;
+  assignee?: string;
+  priority: 'low' | 'medium' | 'high';
+  dueDate?: string;
+  completed: boolean;
+}
 
 const Index = () => {
-  const [apiKey, setApiKey] = useState("");
-  const [terminalHistory, setTerminalHistory] = useState<Array<{ type: 'command' | 'output' | 'error', content: string }>>([
-    { type: 'output', content: 'Automation Pipeline v1.0.0' },
-    { type: 'output', content: 'Type "help" to see available commands.' },
-  ]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState("");
-  const [workflowSteps, setWorkflowSteps] = useState<Array<{
-    id: string;
-    title: string;
-    icon: React.ReactNode;
-    status: 'idle' | 'processing' | 'completed' | 'error';
-  }>>([
-    { id: 'cli', title: 'User CLI', icon: <Terminal className="w-6 h-6 text-foreground" />, status: 'idle' },
-    { id: 'python', title: 'Python Script', icon: <FileCode className="w-6 h-6 text-foreground" />, status: 'idle' },
-    { id: 'perplexity', title: 'Perplexity API', icon: <Cloud className="w-6 h-6 text-foreground" />, status: 'idle' },
-    { id: 'github', title: 'GitHub Actions', icon: <GitBranch className="w-6 h-6 text-foreground" />, status: 'idle' },
-  ]);
-  const [gitHubRuns, setGitHubRuns] = useState<Array<{
-    id: string;
-    name: string;
-    status: 'success' | 'failure' | 'pending' | 'running';
-    timestamp: string;
-    branch: string;
-    commit: string;
-  }>>([]);
-
   const { toast } = useToast();
 
-  const updateStepStatus = (stepId: string, status: 'idle' | 'processing' | 'completed' | 'error') => {
-    setWorkflowSteps(prev => prev.map(step => 
-      step.id === stepId ? { ...step, status } : step
-    ));
-  };
-
-  const simulateWorkflow = async (command: string) => {
-    setIsProcessing(true);
-    setCurrentStep('cli');
-    updateStepStatus('cli', 'processing');
-
-    // CLI Step
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    updateStepStatus('cli', 'completed');
-    setTerminalHistory(prev => [...prev, { type: 'output', content: '✓ Command processed' }]);
-
-    // Python Script Step
-    setCurrentStep('python');
-    updateStepStatus('python', 'processing');
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    updateStepStatus('python', 'completed');
-    setTerminalHistory(prev => [...prev, { type: 'output', content: '✓ Python script executed' }]);
-
-    // Perplexity API Step
-    setCurrentStep('perplexity');
-    updateStepStatus('perplexity', 'processing');
-    
-    if (apiKey) {
-      try {
-        const response = await fetch('https://api.perplexity.ai/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'llama-3.1-sonar-small-128k-online',
-            messages: [
-              {
-                role: 'system',
-                content: 'Be precise and concise. Respond as if you are processing a CLI automation command.'
-              },
-              {
-                role: 'user',
-                content: `Process this automation command: ${command}`
-              }
-            ],
-            temperature: 0.2,
-            top_p: 0.9,
-            max_tokens: 200,
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const aiResponse = data.choices[0]?.message?.content || 'AI processing completed';
-          updateStepStatus('perplexity', 'completed');
-          setTerminalHistory(prev => [...prev, { type: 'output', content: `✓ AI Response: ${aiResponse}` }]);
-        } else {
-          throw new Error('API request failed');
-        }
-      } catch (error) {
-        updateStepStatus('perplexity', 'error');
-        setTerminalHistory(prev => [...prev, { type: 'error', content: '✗ Perplexity API error' }]);
-      }
-    } else {
-      updateStepStatus('perplexity', 'completed');
-      setTerminalHistory(prev => [...prev, { type: 'output', content: '✓ Perplexity API simulation completed' }]);
-    }
-
-    // GitHub Actions Step
-    setCurrentStep('github');
-    updateStepStatus('github', 'processing');
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const newRun = {
+  const handleTranscriptUpload = async (transcript: string, title: string) => {
+    const meeting: Meeting = {
       id: Date.now().toString(),
-      name: 'Automation Pipeline',
-      status: 'success' as const,
-      timestamp: new Date().toLocaleTimeString(),
-      branch: 'main',
-      commit: Math.random().toString(36).substring(7)
+      title,
+      transcript,
+      timestamp: new Date().toISOString(),
+      status: 'processing'
     };
-    
-    setGitHubRuns(prev => [newRun, ...prev.slice(0, 4)]);
-    updateStepStatus('github', 'completed');
-    setTerminalHistory(prev => [...prev, { type: 'output', content: '✓ GitHub Actions workflow completed' }]);
 
-    setCurrentStep('');
-    setIsProcessing(false);
-    
-    toast({
-      title: "Workflow Completed",
-      description: "All pipeline steps executed successfully",
-    });
+    setMeetings(prev => [meeting, ...prev]);
+    setCurrentMeeting(meeting);
+    setIsProcessing(true);
+
+    try {
+      // Simulate AI processing
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const summary = await generateSummary(transcript);
+      const tasks = await extractTasks(transcript);
+
+      const updatedMeeting = {
+        ...meeting,
+        summary,
+        tasks,
+        status: 'completed' as const
+      };
+
+      setMeetings(prev => prev.map(m => m.id === meeting.id ? updatedMeeting : m));
+      setCurrentMeeting(updatedMeeting);
+      
+      toast({
+        title: "Processing Complete",
+        description: "Meeting transcript has been analyzed successfully",
+      });
+    } catch (error) {
+      const errorMeeting = { ...meeting, status: 'error' as const };
+      setMeetings(prev => prev.map(m => m.id === meeting.id ? errorMeeting : m));
+      setCurrentMeeting(errorMeeting);
+      
+      toast({
+        title: "Processing Failed",
+        description: "Failed to analyze the meeting transcript",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleCommand = async (command: string) => {
-    setTerminalHistory(prev => [...prev, { type: 'command', content: command }]);
+  const generateSummary = async (transcript: string): Promise<string> => {
+    // Simulate AI summarization
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Mock summary generation
+    const sentences = transcript.split('.').filter(s => s.trim().length > 0);
+    const keyPoints = sentences.slice(0, 3).map(s => s.trim()).join('. ');
+    return `Key Discussion Points: ${keyPoints}. The meeting covered important strategic decisions and next steps for the project.`;
+  };
 
-    if (command.toLowerCase() === 'help') {
-      setTerminalHistory(prev => [...prev, { 
-        type: 'output', 
-        content: `Available commands:
-  help          - Show this help message
-  run [task]    - Execute automation pipeline
-  status        - Show workflow status
-  clear         - Clear terminal history`
-      }]);
-      return;
-    }
+  const extractTasks = async (transcript: string): Promise<Task[]> => {
+    // Simulate AI task extraction
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Mock task extraction
+    const mockTasks: Task[] = [
+      {
+        id: Date.now().toString(),
+        description: "Follow up on project timeline discussion",
+        priority: 'high',
+        completed: false
+      },
+      {
+        id: (Date.now() + 1).toString(),
+        description: "Prepare quarterly review presentation",
+        priority: 'medium',
+        completed: false
+      },
+      {
+        id: (Date.now() + 2).toString(),
+        description: "Schedule follow-up meeting with stakeholders",
+        priority: 'low',
+        completed: false
+      }
+    ];
+    
+    return mockTasks;
+  };
 
-    if (command.toLowerCase() === 'clear') {
-      setTerminalHistory([
-        { type: 'output', content: 'Automation Pipeline v1.0.0' },
-        { type: 'output', content: 'Type "help" to see available commands.' },
-      ]);
-      return;
-    }
-
-    if (command.toLowerCase() === 'status') {
-      const activeSteps = workflowSteps.filter(step => step.status === 'processing').length;
-      setTerminalHistory(prev => [...prev, { 
-        type: 'output', 
-        content: `Workflow Status: ${activeSteps > 0 ? 'Running' : 'Idle'}
-Recent runs: ${gitHubRuns.length}
-API configured: ${apiKey ? 'Yes' : 'No'}`
-      }]);
-      return;
-    }
-
-    if (command.toLowerCase().startsWith('run')) {
-      await simulateWorkflow(command);
-      return;
-    }
-
-    setTerminalHistory(prev => [...prev, { 
-      type: 'error', 
-      content: `Command not found: ${command}. Type "help" for available commands.`
-    }]);
+  const updateTask = (taskId: string, updates: Partial<Task>) => {
+    if (!currentMeeting) return;
+    
+    const updatedTasks = currentMeeting.tasks?.map(task =>
+      task.id === taskId ? { ...task, ...updates } : task
+    );
+    
+    const updatedMeeting = { ...currentMeeting, tasks: updatedTasks };
+    setCurrentMeeting(updatedMeeting);
+    setMeetings(prev => prev.map(m => m.id === currentMeeting.id ? updatedMeeting : m));
   };
 
   return (
@@ -184,43 +136,75 @@ API configured: ${apiKey ? 'Yes' : 'No'}`
         {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Automation Pipeline
+            InsightEase
           </h1>
           <p className="text-muted-foreground">
-            CLI → Python Script → Perplexity Sonar API → GitHub Actions CI
+            AI-powered meeting intelligence that automatically summarizes transcripts and extracts actionable tasks
           </p>
         </div>
-
-        {/* API Configuration */}
-        <APIKeyInput 
-          onApiKeySet={setApiKey} 
-          hasApiKey={!!apiKey}
-        />
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="space-y-6">
-            <CLITerminal
-              onCommand={handleCommand}
-              history={terminalHistory}
+            <TranscriptUpload 
+              onUpload={handleTranscriptUpload}
               isProcessing={isProcessing}
             />
             
-            <WorkflowVisualization
-              currentStep={currentStep}
-              steps={workflowSteps}
-            />
+            {isProcessing && (
+              <ProcessingStatus />
+            )}
           </div>
 
           {/* Right Column */}
           <div className="space-y-6">
-            <GitHubActions
-              workflowRuns={gitHubRuns}
-              isActive={currentStep === 'github'}
-            />
+            {currentMeeting && (
+              <>
+                <MeetingSummary 
+                  meeting={currentMeeting}
+                />
+                
+                {currentMeeting.tasks && (
+                  <TaskExtraction
+                    tasks={currentMeeting.tasks}
+                    onUpdateTask={updateTask}
+                  />
+                )}
+              </>
+            )}
           </div>
         </div>
+
+        {/* Meeting History */}
+        {meetings.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-2xl font-semibold mb-4">Recent Meetings</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {meetings.map(meeting => (
+                <div
+                  key={meeting.id}
+                  className="p-4 border rounded-lg cursor-pointer hover:bg-secondary/50 transition-colors"
+                  onClick={() => setCurrentMeeting(meeting)}
+                >
+                  <h3 className="font-medium truncate">{meeting.title}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(meeting.timestamp).toLocaleDateString()}
+                  </p>
+                  <div className="mt-2">
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      meeting.status === 'completed' ? 'bg-green-100 text-green-800' :
+                      meeting.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {meeting.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
